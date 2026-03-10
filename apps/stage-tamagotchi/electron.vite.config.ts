@@ -3,7 +3,6 @@ import { join, resolve } from 'node:path'
 import VueI18n from '@intlify/unplugin-vue-i18n/vite'
 import Vue from '@vitejs/plugin-vue'
 import UnoCss from 'unocss/vite'
-import Info from 'unplugin-info/vite'
 import VueRouter from 'unplugin-vue-router/vite'
 import Yaml from 'unplugin-yaml/vite'
 import Inspect from 'vite-plugin-inspect'
@@ -22,7 +21,7 @@ const sharedCacheDir = resolve(join(import.meta.dirname, '..', '..', '.cache'))
 export default defineConfig({
   main: {
     plugins: [
-      Info(),
+      // Info(),
       {
         // To replace `build.rolldownOptions`, as electron-vite still uses the deprecated
         // `rollupOptions`, using `rollupOptions` and `rolldownOptions` at the same
@@ -136,7 +135,7 @@ export default defineConfig({
     },
 
     plugins: [
-      Info(),
+      // Info(),
 
       {
         name: 'proj-airi:defines',

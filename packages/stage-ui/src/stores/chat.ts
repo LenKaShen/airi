@@ -49,6 +49,17 @@ interface QueuedSend {
   }
 }
 
+function formatChatFailure(error: unknown): string {
+  const text = String(error)
+  const normalized = text.toLowerCase()
+
+  if (normalized.includes('429') || normalized.includes('too many requests')) {
+    return 'Gemini is temporarily rate-limited (429). Please wait a bit and try again, or switch to another model/provider.'
+  }
+
+  return `Chat request failed: ${text}`
+}
+
 export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
   const llmStore = useLLM()
   const consciousnessStore = useConsciousnessStore()
@@ -139,6 +150,8 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
     updateUI()
     trackFirstMessage()
 
+    const sessionMessagesForSend = chatSession.getSessionMessages(sessionId)
+
     try {
       await hooks.emitBeforeMessageComposedHooks(sendingMessage, streamingMessageContext)
 
@@ -170,7 +183,6 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
       if (shouldAbort())
         return
 
-      const sessionMessagesForSend = chatSession.getSessionMessages(sessionId)
       sessionMessagesForSend.push({ role: 'user', content: finalContent, createdAt: sendingCreatedAt, id: nanoid() })
       chatSession.persistSessionMessages(sessionId)
 
@@ -349,6 +361,26 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
     }
     catch (error) {
       console.error('Error sending message:', error)
+
+      if (!isStaleGeneration()) {
+        const failureText = formatChatFailure(error)
+        const failureMessage: StreamingAssistantMessage = {
+          role: 'assistant',
+          content: failureText,
+          slices: [{ type: 'text', text: failureText }],
+          tool_results: [],
+          createdAt: Date.now(),
+          id: nanoid(),
+        }
+
+        sessionMessagesForSend.push(toRaw(failureMessage))
+        chatSession.persistSessionMessages(sessionId)
+      }
+
+      if (isForegroundSession()) {
+        streamingMessage.value = { role: 'assistant', content: '', slices: [], tool_results: [] }
+      }
+
       throw error
     }
     finally {

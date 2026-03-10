@@ -1,13 +1,9 @@
-import buildTime from '~build/time'
-
-import { abbreviatedSha, branch } from '~build/git'
-import { version } from '~build/package'
-
+// Fake build info since Info plugin is disabled
 export function useBuildInfo() {
   return {
-    version: version ?? 'dev',
-    commit: abbreviatedSha,
-    branch,
-    builtOn: buildTime.toISOString(),
+    version: 'dev',
+    commit: 'local',
+    branch: 'local',
+    builtOn: new Date().toISOString(),
   }
 }

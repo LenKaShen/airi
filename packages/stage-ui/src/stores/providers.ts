@@ -1209,6 +1209,157 @@ export const useProvidersStore = defineStore('providers', () => {
         },
       },
     },
+    'voicevox': {
+      id: 'voicevox',
+      category: 'speech',
+      tasks: ['text-to-speech', 'tts'],
+      nameKey: 'settings.pages.providers.provider.voicevox.title',
+      name: 'VOICEVOX',
+      descriptionKey: 'settings.pages.providers.provider.voicevox.description',
+      description: 'Local VOICEVOX Engine',
+      icon: 'i-solar:microphone-2-bold-duotone',
+      defaultOptions: () => ({
+        baseUrl: 'http://127.0.0.1:50021/',
+        model: 'voicevox-engine',
+      }),
+      createProvider: async (config) => {
+        const normalizedBaseUrl = String(config.baseUrl || 'http://127.0.0.1:50021/').trim().replace(/\/?$/, '/')
+
+        const provider: SpeechProvider = {
+          speech: (model: string) => {
+            return {
+              baseURL: normalizedBaseUrl,
+              model: model || 'voicevox-engine',
+              fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+                if (!init?.body || typeof init.body !== 'string') {
+                  throw new Error('Invalid speech request body for VOICEVOX')
+                }
+
+                const payload = JSON.parse(init.body) as { input?: string, voice?: string | number }
+                const inputText = String(payload.input || '')
+                const speaker = Number(payload.voice || 1)
+
+                if (!inputText.trim()) {
+                  throw new Error('VOICEVOX input text is empty')
+                }
+
+                const audioQueryUrl = new URL('audio_query', normalizedBaseUrl)
+                audioQueryUrl.searchParams.set('text', inputText)
+                audioQueryUrl.searchParams.set('speaker', String(speaker))
+
+                const audioQueryResponse = await globalThis.fetch(audioQueryUrl.toString(), { method: 'POST' })
+                if (!audioQueryResponse.ok) {
+                  throw new Error(`VOICEVOX audio_query failed: HTTP ${audioQueryResponse.status} ${audioQueryResponse.statusText}`)
+                }
+
+                const audioQuery = await audioQueryResponse.json() as Record<string, unknown>
+
+                if (typeof config.speed === 'number') {
+                  audioQuery.speedScale = config.speed
+                }
+                if (typeof config.pitch === 'number') {
+                  audioQuery.pitchScale = config.pitch / 100
+                }
+                if (typeof config.volume === 'number') {
+                  audioQuery.volumeScale = Math.max(0, 1 + (config.volume / 100))
+                }
+
+                const synthesisUrl = new URL('synthesis', normalizedBaseUrl)
+                synthesisUrl.searchParams.set('speaker', String(speaker))
+
+                const synthesisResponse = await globalThis.fetch(synthesisUrl.toString(), {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(audioQuery),
+                })
+
+                if (!synthesisResponse.ok) {
+                  throw new Error(`VOICEVOX synthesis failed: HTTP ${synthesisResponse.status} ${synthesisResponse.statusText}`)
+                }
+
+                const wavBuffer = await synthesisResponse.arrayBuffer()
+
+                return new Response(wavBuffer, {
+                  status: 200,
+                  headers: {
+                    'Content-Type': 'audio/wav',
+                  },
+                })
+              },
+            }
+          },
+        }
+
+        return provider
+      },
+      capabilities: {
+        listModels: async () => {
+          return [{
+            id: 'voicevox-engine',
+            name: 'VOICEVOX Engine',
+            provider: 'voicevox',
+            description: 'Local VOICEVOX synthesis engine',
+            contextLength: 0,
+            deprecated: false,
+          }]
+        },
+        listVoices: async (config) => {
+          const normalizedBaseUrl = String(config.baseUrl || 'http://127.0.0.1:50021/').trim().replace(/\/?$/, '/')
+
+          const response = await fetch(`${normalizedBaseUrl}speakers`)
+          if (!response.ok) {
+            throw new Error(`Failed to fetch VOICEVOX speakers: HTTP ${response.status} ${response.statusText}`)
+          }
+
+          const speakers = await response.json() as Array<{ name: string, styles: Array<{ id: number, name: string }> }>
+
+          return speakers.flatMap((speaker) => {
+            return speaker.styles.map(style => ({
+              id: String(style.id),
+              name: `${speaker.name} - ${style.name}`,
+              provider: 'voicevox',
+              languages: [{ code: 'ja-JP', title: 'Japanese' }],
+            }))
+          })
+        },
+      },
+      validators: {
+        validateProviderConfig: async (config) => {
+          const errors = [
+            !config.baseUrl && new Error('Base URL is required. Default to http://127.0.0.1:50021/ for VOICEVOX.'),
+          ].filter(Boolean)
+
+          const res = baseUrlValidator.value(config.baseUrl)
+          if (res) {
+            return res
+          }
+
+          try {
+            const controller = new AbortController()
+            const timeout = setTimeout(() => controller.abort(), 5000)
+            const response = await fetch(`${config.baseUrl as string}version`, { signal: controller.signal })
+            clearTimeout(timeout)
+
+            if (!response.ok) {
+              const reason = `VOICEVOX unreachable: HTTP ${response.status} ${response.statusText}`
+              return { errors: [new Error(reason)], reason, valid: false }
+            }
+          }
+          catch (err) {
+            const reason = `VOICEVOX connection failed: ${String(err)}`
+            return { errors: [err as Error], reason, valid: false }
+          }
+
+          return {
+            errors,
+            reason: errors.filter(e => e).map(e => String(e)).join(', ') || '',
+            valid: errors.length === 0,
+          }
+        },
+      },
+    },
     'alibaba-cloud-model-studio': {
       id: 'alibaba-cloud-model-studio',
       category: 'speech',
@@ -1848,6 +1999,9 @@ export const useProvidersStore = defineStore('providers', () => {
       }
 
       const loop = useIntervalFn(() => {
+        if (!shouldListProvider(providerId)) {
+          return
+        }
         void validateProvider(providerId, { force: true })
       }, intervalMs, { immediate: false, immediateCallback: false })
       loop.resume()
@@ -1858,8 +2012,7 @@ export const useProvidersStore = defineStore('providers', () => {
   // Update configuration status for all configured providers
   async function updateConfigurationStatus() {
     await Promise.all(Object.entries(providerMetadata)
-      // TODO: ignore un-configured provider
-      // .filter(([_, provider]) => provider.configured)
+      .filter(([providerId]) => shouldListProvider(providerId))
       .map(async ([providerId]) => {
         try {
           if (providerRuntimeState.value[providerId]) {

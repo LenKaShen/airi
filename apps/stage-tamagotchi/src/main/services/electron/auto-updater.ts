@@ -4,13 +4,10 @@ import type { UpdateInfo } from 'electron-updater'
 
 import type { AutoUpdaterState } from '../../../shared/eventa'
 
-import electronUpdater from 'electron-updater'
-
-import { is } from '@electron-toolkit/utils'
+// import electronUpdater from 'electron-updater'
 import { useLogg } from '@guiiai/logg'
 import { defineInvokeHandler } from '@moeru/eventa'
 import { errorMessageFrom } from '@moeru/std'
-import { committerDate } from '~build/git'
 import { app } from 'electron'
 import { Semaphore } from 'es-toolkit'
 
@@ -30,14 +27,7 @@ export interface AppUpdaterLike {
 // NOTICE: this part of code is copied from https://www.electron.build/auto-update
 // Or https://github.com/electron-userland/electron-builder/blob/b866e99ccd3ea9f85bc1e840f0f6a6a162fca388/pages/auto-update.md?plain=1#L57-L66
 export function fromImported(): AppUpdaterLike {
-  if (is.dev) {
-    return new MockAutoUpdater()
-  }
-
-  // Using destructuring to access autoUpdater due to the CommonJS module of 'electron-updater'.
-  // It is a workaround for ESM compatibility issues, see https://github.com/electron-userland/electron-builder/issues/7976.
-  const { autoUpdater } = electronUpdater
-  return autoUpdater as unknown as AppUpdaterLike
+  return new MockAutoUpdater()
 }
 
 type MainContext = ReturnType<typeof createContext>['context']
@@ -76,7 +66,7 @@ export function setupAutoUpdater(): AutoUpdater {
   autoUpdater.on('checking-for-update', () => broadcast({ status: 'checking' }))
   autoUpdater.on('update-available', (info: UpdateInfo) => broadcast({ status: 'available', info }))
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => broadcast({ status: 'downloaded', info }))
-  autoUpdater.on('update-not-available', () => broadcast({ status: 'not-available', info: { version: app.getVersion(), files: [], releaseDate: committerDate } }))
+  autoUpdater.on('update-not-available', () => broadcast({ status: 'not-available', info: { version: app.getVersion(), files: [], releaseDate: new Date().toISOString() } }))
   autoUpdater.on('download-progress', progress => broadcast({
     ...state,
     status: 'downloading',

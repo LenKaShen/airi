@@ -48,7 +48,7 @@ export const providerGoogleGenerativeAI = defineProvider<GoogleGenerativeConfig>
   },
   validators: {
     ...createOpenAICompatibleValidators({
-      checks: ['connectivity', 'model_list'],
+      checks: [],
     }),
   },
 })
