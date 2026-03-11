@@ -1532,6 +1532,22 @@ export const useProvidersStore = defineStore('providers', () => {
       ),
       validation: ['model_list'],
     }),
+    'groq-audio-transcription': buildOpenAICompatibleProvider({
+      id: 'groq-audio-transcription',
+      name: 'Groq Transcription',
+      nameKey: 'settings.pages.providers.provider.groq.title',
+      descriptionKey: 'settings.pages.providers.provider.groq.description',
+      icon: 'i-lobe-icons:groq',
+      description: 'groq.com',
+      category: 'transcription',
+      tasks: ['speech-to-text', 'automatic-speech-recognition', 'asr', 'stt'],
+      defaultBaseUrl: 'https://api.groq.com/openai/v1/',
+      creator: (apiKey, baseURL = 'https://api.groq.com/openai/v1/') => merge(
+        createModelProvider({ apiKey, baseURL }),
+        createTranscriptionProvider({ apiKey, baseURL }),
+      ),
+      validation: ['model_list'],
+    }),
     'player2-speech': {
       id: 'player2-speech',
       category: 'speech',
