@@ -235,7 +235,10 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
           }
           updateUI()
         },
-        minLiteralEmitLength: 24,
+        // NOTICE: Keep minLiteralEmitLength small so text reaches the TTS pipeline quickly.
+        // The speech pipeline's tts-chunker already handles sentence-level buffering, so
+        // a large value here only delays TTS start without any benefit.
+        minLiteralEmitLength: 4,
       })
 
       const toolCallQueue = createQueue<ChatSlices>({
