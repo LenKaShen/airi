@@ -287,14 +287,22 @@ async function loadModel() {
       }, 300)
     }
 
-    // Remove eye ball movements from idle motion group to prevent conflicts
+    // Remove conflicting parameters from idle motion curves so external drivers
+    // (eye-focus, auto-blink, lip-sync) always have priority over the idle animation.
     // This is too hacky
     // FIXME: it cannot blink if loading a model only have idle motion
     if (motionManager.groups.idle) {
       motionManager.motionGroups[motionManager.groups.idle]?.forEach((motion) => {
         motion._motionData.curves.forEach((curve: any) => {
-        // TODO: After emotion mapper, stage editor, eye related parameters should be take cared to be dynamical instead of hardcoding
+          // TODO: After emotion mapper, stage editor, eye related parameters should be take cared to be dynamical instead of hardcoding
           if (curve.id === 'ParamEyeBallX' || curve.id === 'ParamEyeBallY') {
+            curve.id = `_${curve.id}`
+          }
+          // NOTICE: Idle motions also animate the mouth, which overwrites the lip-sync
+          // value (mouthOpenSize) every Pixi ticker frame before the Vue watcher can
+          // re-apply it. Disabling the idle mouth curves gives lip-sync full control,
+          // consistent with how eye-ball curves are handled just above.
+          if (curve.id === 'ParamMouthOpenY' || curve.id === 'ParamMouthForm') {
             curve.id = `_${curve.id}`
           }
         })

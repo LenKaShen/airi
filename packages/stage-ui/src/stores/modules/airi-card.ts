@@ -278,7 +278,17 @@ export const useAiriCardStore = defineStore('airi-card', () => {
         card.personality,
       ].filter(Boolean)
 
-      return components.join('\n')
+      if (components.length === 0)
+        return ''
+
+      // Prepend an explicit roleplay anchor so small models (e.g. 1b) embody
+      // the character instead of analyzing its description from the outside.
+      const name = card.name?.trim()
+      const anchor = name
+        ? `You are ${name}. Embody ${name} completely in every reply. Always speak in first person as ${name}. Never refer to ${name} in third person, never describe what ${name} would say — just say it. Never break character.`
+        : `You must stay fully in character at all times. Always speak in first person as the character. Never break character or analyze yourself from a third-person perspective.`
+
+      return [anchor, ...components].join('\n\n')
     }),
   }
 })

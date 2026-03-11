@@ -11,7 +11,7 @@ import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'
 import { getImportUrlBundles } from '@proj-airi/drizzle-duckdb-wasm/bundles/import-url-browser'
 import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
-import { createPlaybackManager, createSpeechPipeline } from '@proj-airi/pipelines-audio'
+import { createPlaybackManager, createPushStream, createSpeechPipeline } from '@proj-airi/pipelines-audio'
 import { Live2DScene, useLive2d } from '@proj-airi/stage-ui-live2d'
 import { ThreeScene, useModelStore } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
@@ -25,6 +25,7 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { useDelayMessageQueue, useEmotionsMessageQueue } from '../../composables/queues'
+import { stripMarkdownActionsForSpeech } from '../../composables/response-categoriser'
 import { llmInferenceEndToken } from '../../constants'
 import { EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
 import { useAudioContext, useSpeakingStore } from '../../stores/audio'
@@ -235,6 +236,74 @@ const playbackManager = createPlaybackManager<AudioBuffer>({
   ownerOverflowPolicy: 'steal-oldest',
 })
 
+function createRawReplySegmentStream(tokens: ReadableStream<any>, meta: { streamId: string, intentId: string }) {
+  const { stream, write, close, error } = createPushStream<any>()
+
+  void (async () => {
+    const reader = tokens.getReader()
+    let literalBuffer = ''
+
+    const emitBufferedLiteral = () => {
+      const text = literalBuffer
+      literalBuffer = ''
+      if (!text.trim())
+        return
+
+      write({
+        streamId: meta.streamId,
+        intentId: meta.intentId,
+        segmentId: `${meta.streamId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        special: null,
+        reason: 'flush',
+        createdAt: Date.now(),
+      })
+    }
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done)
+          break
+        if (!value)
+          continue
+
+        if (value.type === 'literal') {
+          literalBuffer += value.value ?? ''
+          continue
+        }
+
+        if (value.type === 'special') {
+          write({
+            streamId: meta.streamId,
+            intentId: meta.intentId,
+            segmentId: `${meta.streamId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+            text: '',
+            special: value.value ?? null,
+            reason: 'special',
+            createdAt: Date.now(),
+          })
+          continue
+        }
+
+        if (value.type === 'flush')
+          emitBufferedLiteral()
+      }
+
+      emitBufferedLiteral()
+      close()
+    }
+    catch (err) {
+      error(err)
+    }
+    finally {
+      reader.releaseLock()
+    }
+  })()
+
+  return stream
+}
+
 const speechPipeline = createSpeechPipeline<AudioBuffer>({
   tts: async (request, signal) => {
     if (signal.aborted)
@@ -252,7 +321,8 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
       return null
     }
 
-    if (!request.text && !request.special)
+    const speechText = stripMarkdownActionsForSpeech(request.text)
+    if (!speechText && !request.special)
       return null
 
     const providerConfig = providersStore.getProviderConfig(activeSpeechProvider.value)
@@ -303,8 +373,8 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
       return null
 
     const input = ssmlEnabled.value
-      ? speechStore.generateSSML(request.text, voice, { ...providerConfig, pitch: pitch.value })
-      : request.text
+      ? speechStore.generateSSML(speechText, voice, { ...providerConfig, pitch: pitch.value })
+      : speechText
 
     try {
       const res = await generateSpeech({
@@ -324,6 +394,8 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
     }
   },
   playback: playbackManager,
+  // Emit one TTS request per assistant reply (no punctuation/word chunking).
+  segmenter: (tokens, meta) => createRawReplySegmentStream(tokens, meta),
 })
 
 void speechRuntimeStore.registerHost(speechPipeline)

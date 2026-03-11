@@ -260,7 +260,12 @@ export const useChatSessionStore = defineStore('chat-session', () => {
       const stored = await chatSessionsRepo.getSession(sessionId)
       if (stored) {
         sessionMetas.value[sessionId] = stored.meta
-        sessionMessages.value[sessionId] = stored.messages
+        // Always use the current system prompt — replace the stored first message
+        // so character card changes and prompt updates take effect without a manual
+        // "clear chat" after every app restart or card switch.
+        const freshSystemMessage = generateInitialMessage()
+        const rest = stored.messages.length > 0 ? stored.messages.slice(1) : []
+        sessionMessages.value[sessionId] = [freshSystemMessage, ...rest]
         ensureGeneration(sessionId)
       }
       loadedSessions.add(sessionId)

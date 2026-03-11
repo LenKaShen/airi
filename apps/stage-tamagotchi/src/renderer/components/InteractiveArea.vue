@@ -11,10 +11,8 @@ import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consci
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
 import { BasicTextarea } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-
-import { widgetsTools } from '../stores/tools/builtin/widgets'
 
 const messageInput = ref('')
 const attachments = ref<{ type: 'image', data: string, mimeType: string, url: string }[]>([])
@@ -23,7 +21,7 @@ const chatOrchestrator = useChatOrchestratorStore()
 const chatSession = useChatSessionStore()
 const chatStream = useChatStreamStore()
 const { cleanupMessages } = useChatMaintenanceStore()
-const { ingest, onAfterMessageComposed, discoverToolsCompatibility } = chatOrchestrator
+const { ingest, onAfterMessageComposed } = chatOrchestrator
 const { messages } = storeToRefs(chatSession)
 const { streamingMessage } = storeToRefs(chatStream)
 const { sending } = storeToRefs(chatOrchestrator)
@@ -55,7 +53,10 @@ async function handleSend() {
       chatProvider: await providersStore.getProviderInstance<ChatProvider>(activeProvider.value),
       providerConfig,
       attachments: attachmentsToSend,
-      tools: widgetsTools,
+      // NOTICE: Tools are intentionally disabled here. Small local models (e.g. llama3.2:1b)
+      // echo tool schemas into speech output when tool calling is enabled. Enable per-model
+      // once a capable model is configured.
+      // tools: widgetsTools,
     })
 
     attachmentsToSend.forEach(att => URL.revokeObjectURL(att.url))
@@ -103,11 +104,9 @@ function removeAttachment(index: number) {
   }
 }
 
-watch([activeProvider, activeModel], async () => {
-  if (activeProvider.value && activeModel.value) {
-    await discoverToolsCompatibility(activeModel.value, await providersStore.getProviderInstance<ChatProvider>(activeProvider.value), [])
-  }
-}, { immediate: true })
+// NOTICE: Auto tool-discovery is disabled. Small local models (llama3.2:1b, etc.) pass the
+// discovery check (Ollama supports the API) but then echo tool schemas as speech output.
+// Re-enable discovery once a model is configured that reliably uses tools.
 
 onAfterMessageComposed(async () => {
   messageInput.value = ''

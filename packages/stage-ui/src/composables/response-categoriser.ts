@@ -464,3 +464,25 @@ export function createStreamingCategorizer(
     },
   }
 }
+
+/**
+ * Strips markdown-style roleplay action/emote text from a speech string before
+ * it is sent to TTS. Characters often express non-verbal actions using italic or
+ * bold asterisks (e.g. *laughing softly*, **sighs**) or underscores (_smiles_).
+ * These should be silently removed so the TTS only speaks actual dialogue.
+ *
+ * Only removes complete pairs (open + close) within a single line to avoid
+ * accidentally destroying partial tokens during streaming.
+ */
+export function stripMarkdownActionsForSpeech(text: string): string {
+  return text
+    // **bold actions** — must come before single-asterisk to avoid partial match
+    .replace(/\*\*[^*\n]+\*\*/g, '')
+    // *italic actions*
+    .replace(/\*[^*\n]+\*/g, '')
+    // _italic actions_
+    .replace(/_[^_\n]+_/g, '')
+    // Collapse any extra whitespace left by removals
+    .replace(/ {2,}/g, ' ')
+    .trim()
+}

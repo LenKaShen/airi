@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest'
 
-import { createStreamingCategorizer } from './response-categoriser'
+import { createStreamingCategorizer, stripMarkdownActionsForSpeech } from './response-categoriser'
+
+describe('stripMarkdownActionsForSpeech', () => {
+  it('strips single-asterisk italic actions', () => {
+    expect(stripMarkdownActionsForSpeech('*laughing softly* Hello there!')).toBe('Hello there!')
+  })
+
+  it('strips double-asterisk bold actions', () => {
+    expect(stripMarkdownActionsForSpeech('**sighs** You asked for this.')).toBe('You asked for this.')
+  })
+
+  it('strips underscore italic actions', () => {
+    expect(stripMarkdownActionsForSpeech('_smiles warmly_ Indeed.')).toBe('Indeed.')
+  })
+
+  it('strips inline action mixed with dialogue', () => {
+    expect(stripMarkdownActionsForSpeech('*laughing softly, a hint of satisfaction* You can\'t say you do, but you can find out.')).toBe('You can\'t say you do, but you can find out.')
+  })
+
+  it('does not strip unpaired asterisks', () => {
+    expect(stripMarkdownActionsForSpeech('price is $5 * discount')).toBe('price is $5 * discount')
+  })
+
+  it('leaves plain speech unchanged', () => {
+    expect(stripMarkdownActionsForSpeech('Just a normal sentence.')).toBe('Just a normal sentence.')
+  })
+})
 
 describe('createStreamingCategorizer', () => {
   it('should handle pure speech without tags', () => {
