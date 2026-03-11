@@ -134,9 +134,16 @@ export const useSpeechStore = defineStore('speech', () => {
       if (!activeSpeechProvider.value)
         return
 
+      // NOTICE: skip the stale-selection check when the configured list is still empty.
+      // On startup, providerRuntimeState is not persisted so validation is async — the list
+      // is empty until updateConfigurationStatus resolves, which causes an immediate:true
+      // watch to incorrectly clear a valid persisted selection before validation finishes.
+      if (configuredProviderIds.length === 0)
+        return
+
       // NOTICE: clear stale selection when the currently selected speech provider
       // is no longer configured to avoid implicit fallback behavior from persisted state.
-      if (!configuredProviderIds.includes(activeSpeechProvider.value)) {
+      if (!configuredProviderIds.includes(activeSpeechProvider.value) && activeSpeechProvider.value !== 'speech-noop') {
         activeSpeechProvider.value = 'speech-noop'
         activeSpeechModel.value = ''
         activeSpeechVoiceId.value = ''
