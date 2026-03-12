@@ -95,7 +95,7 @@ onMounted(async () => {
         title="Browser TTS"
         description="Use built-in system voices through Web Speech Synthesis."
       >
-        <Callout label="No API key required" theme="green">
+        <Callout label="No API key required" theme="lime">
           This provider uses your browser/Electron runtime voices and is optimized for low-latency local playback.
         </Callout>
 
