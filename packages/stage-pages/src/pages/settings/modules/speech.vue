@@ -56,6 +56,50 @@ const isGenerating = ref(false)
 const audioUrl = ref('')
 const audioPlayer = ref<HTMLAudioElement | null>(null)
 const errorMessage = ref('')
+const webSpeechUtterance = ref<SpeechSynthesisUtterance | null>(null)
+
+function stopWebSpeechSynthesis() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window))
+    return
+
+  window.speechSynthesis.cancel()
+  webSpeechUtterance.value = null
+}
+
+async function speakWithWebSpeechSynthesis(text: string, voiceId: string): Promise<void> {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+    throw new Error('Web Speech Synthesis is not available in this environment.')
+  }
+
+  const synth = window.speechSynthesis
+  synth.cancel()
+
+  const utterance = new SpeechSynthesisUtterance(text)
+  const voices = synth.getVoices()
+  const matchedVoice = voices.find(voice => (voice.voiceURI || voice.name) === voiceId)
+  if (matchedVoice) {
+    utterance.voice = matchedVoice
+    utterance.lang = matchedVoice.lang || utterance.lang
+  }
+
+  utterance.rate = 1.1
+  utterance.pitch = 1
+  utterance.volume = 1
+
+  webSpeechUtterance.value = utterance
+
+  await new Promise<void>((resolve, reject) => {
+    utterance.onend = () => {
+      webSpeechUtterance.value = null
+      resolve()
+    }
+    utterance.onerror = (event) => {
+      webSpeechUtterance.value = null
+      reject(new Error(`Web Speech Synthesis error: ${event.error || 'unknown'}`))
+    }
+    synth.speak(utterance)
+  })
+}
 
 // Sync OpenAI Compatible model and voice from provider config
 function syncOpenAICompatibleSettings() {
@@ -118,12 +162,6 @@ async function generateTestSpeech() {
   if (useSSML.value && !ssmlText.value.trim())
     return
 
-  const provider = await providersStore.getProviderInstance(activeSpeechProvider.value) as SpeechProviderWithExtraOptions<string, any>
-  if (!provider) {
-    console.error('Failed to initialize speech provider')
-    return
-  }
-
   const providerConfig = providersStore.getProviderConfig(activeSpeechProvider.value)
 
   // For OpenAI Compatible providers, fall back to provider config for model and voice
@@ -166,6 +204,18 @@ async function generateTestSpeech() {
       stopTestAudio()
     }
 
+    if (activeSpeechProvider.value === 'browser-web-speech-synthesis') {
+      const directSpeechText = useSSML.value ? ssmlText.value : testText.value
+      await speakWithWebSpeechSynthesis(directSpeechText, voice.id)
+      return
+    }
+
+    const provider = await providersStore.getProviderInstance(activeSpeechProvider.value) as SpeechProviderWithExtraOptions<string, any>
+    if (!provider) {
+      console.error('Failed to initialize speech provider')
+      return
+    }
+
     const input = useSSML.value
       ? ssmlText.value
       : ssmlEnabled.value && speechStore.supportsSSML
@@ -199,6 +249,8 @@ async function generateTestSpeech() {
 
 // Function to stop audio playback
 function stopTestAudio() {
+  stopWebSpeechSynthesis()
+
   if (audioPlayer.value) {
     audioPlayer.value.pause()
     audioPlayer.value.currentTime = 0
@@ -213,6 +265,8 @@ function stopTestAudio() {
 
 // Clean up when component is unmounted
 onUnmounted(() => {
+  stopWebSpeechSynthesis()
+
   if (audioUrl.value) {
     URL.revokeObjectURL(audioUrl.value)
   }

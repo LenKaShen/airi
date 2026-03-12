@@ -67,6 +67,11 @@ const ALIYUN_NLS_REGIONS = [
 
 type AliyunNlsRegion = typeof ALIYUN_NLS_REGIONS[number]
 
+const NO_CREDENTIAL_WEB_SPEECH_PROVIDER_IDS = new Set([
+  'browser-web-speech-api',
+  'browser-web-speech-synthesis',
+])
+
 export interface ProviderMetadata {
   id: string
   order?: number
@@ -872,6 +877,115 @@ export const useProvidersStore = defineStore('providers', () => {
           }
 
           // Auto-configure if available (no credentials needed)
+          return {
+            errors: [],
+            reason: '',
+            valid: true,
+          }
+        },
+      },
+    },
+    'browser-web-speech-synthesis': {
+      id: 'browser-web-speech-synthesis',
+      category: 'speech',
+      tasks: ['text-to-speech', 'tts'],
+      nameKey: 'settings.pages.providers.provider.browser-web-speech-synthesis.title',
+      name: 'Web Speech API (Browser TTS)',
+      descriptionKey: 'settings.pages.providers.provider.browser-web-speech-synthesis.description',
+      description: 'Browser-native speech synthesis using system voices. No API keys.',
+      icon: 'i-solar:user-speak-rounded-bold-duotone',
+      defaultOptions: () => ({
+        language: 'ja-JP',
+        pitch: 1,
+        rate: 1.1,
+        volume: 1,
+      }),
+      isAvailableBy: () => {
+        return typeof window !== 'undefined'
+          && 'speechSynthesis' in window
+          && 'SpeechSynthesisUtterance' in window
+      },
+      createProvider: async (_config) => {
+        // NOTICE: runtime playback for this provider is handled directly in Stage.vue
+        // via SpeechSynthesis for low latency. This provider branch exists for
+        // compatibility with generic provider initialization and voice listing.
+        const provider: SpeechProvider = {
+          speech: (model: string) => {
+            return {
+              baseURL: 'about:blank',
+              model: model || 'web-speech-synthesis',
+              fetch: async () => {
+                throw new Error('Web Speech Synthesis does not return audio buffers. Use runtime speech playback path.')
+              },
+            }
+          },
+        }
+
+        return provider
+      },
+      capabilities: {
+        listModels: async () => {
+          return [
+            {
+              id: 'web-speech-synthesis',
+              name: 'Web Speech Synthesis',
+              provider: 'browser-web-speech-synthesis',
+              description: 'System text-to-speech voices from the browser runtime',
+              contextLength: 0,
+              deprecated: false,
+            },
+          ]
+        },
+        listVoices: async () => {
+          if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+            return []
+          }
+
+          const synth = window.speechSynthesis
+          let voices = synth.getVoices()
+
+          if (!voices.length) {
+            voices = await new Promise<SpeechSynthesisVoice[]>((resolve) => {
+              const timeout = setTimeout(() => {
+                synth.removeEventListener('voiceschanged', onVoicesChanged)
+                resolve(synth.getVoices())
+              }, 1200)
+
+              const onVoicesChanged = () => {
+                clearTimeout(timeout)
+                synth.removeEventListener('voiceschanged', onVoicesChanged)
+                resolve(synth.getVoices())
+              }
+
+              synth.addEventListener('voiceschanged', onVoicesChanged)
+            })
+          }
+
+          return voices.map((voice) => {
+            const lang = voice.lang || 'en-US'
+            return {
+              id: voice.voiceURI || voice.name,
+              name: voice.name,
+              provider: 'browser-web-speech-synthesis',
+              languages: [{ code: lang, title: lang }],
+            }
+          })
+        },
+      },
+      validators: {
+        validateProviderConfig: () => {
+          const isAvailable = typeof window !== 'undefined'
+            && 'speechSynthesis' in window
+            && 'SpeechSynthesisUtterance' in window
+
+          if (!isAvailable) {
+            return {
+              errors: [new Error('Web Speech Synthesis is not available in this environment.')],
+              reason: 'Web Speech Synthesis is not available in this environment.',
+              valid: false,
+            }
+          }
+
           return {
             errors: [],
             reason: '',
@@ -1924,15 +2038,15 @@ export const useProvidersStore = defineStore('providers', () => {
     if (!metadata)
       return false
 
-    // Web Speech API doesn't require credentials - use empty config if not present
-    if (providerId === 'browser-web-speech-api') {
+    // Browser Web Speech providers don't require credentials - use defaults if not present.
+    if (NO_CREDENTIAL_WEB_SPEECH_PROVIDER_IDS.has(providerId)) {
       if (!providerCredentials.value[providerId]) {
         providerCredentials.value[providerId] = getDefaultProviderConfig(providerId)
       }
     }
 
     const config = providerCredentials.value[providerId]
-    if (!config && providerId !== 'browser-web-speech-api')
+    if (!config && !NO_CREDENTIAL_WEB_SPEECH_PROVIDER_IDS.has(providerId))
       return false
 
     const configString = JSON.stringify(config || {})
@@ -1956,8 +2070,8 @@ export const useProvidersStore = defineStore('providers', () => {
       if (providerRuntimeState.value[providerId]) {
         providerRuntimeState.value[providerId].isConfigured = validationResult.valid
         providerRuntimeState.value[providerId].validatedCredentialHash = configString
-        // Auto-mark Web Speech API as added if valid and available
-        if (validationResult.valid && ['browser-web-speech-api', 'player2'].includes(providerId)) {
+        // Auto-mark no-credential browser speech providers and player2 speech when valid.
+        if (validationResult.valid && ['browser-web-speech-api', 'browser-web-speech-synthesis', 'player2-speech'].includes(providerId)) {
           markProviderAdded(providerId)
         }
       }
@@ -2254,14 +2368,14 @@ export const useProvidersStore = defineStore('providers', () => {
     if (!metadata)
       throw new Error(`Provider metadata for ${providerId} not found`)
 
-    // Web Speech API doesn't require credentials - use empty config
+    // Browser Web Speech providers don't require credentials - use defaults.
     let config = providerCredentials.value[providerId]
-    if (!config && providerId === 'browser-web-speech-api') {
+    if (!config && NO_CREDENTIAL_WEB_SPEECH_PROVIDER_IDS.has(providerId)) {
       config = getDefaultProviderConfig(providerId)
       providerCredentials.value[providerId] = config
     }
 
-    if (!config && providerId !== 'browser-web-speech-api')
+    if (!config && !NO_CREDENTIAL_WEB_SPEECH_PROVIDER_IDS.has(providerId))
       throw new Error(`Provider credentials for ${providerId} not found`)
 
     try {
@@ -2333,7 +2447,9 @@ export const useProvidersStore = defineStore('providers', () => {
   }
 
   function shouldListProvider(providerId: string) {
-    return !!addedProviders.value[providerId] || isProviderConfigDirty(providerId)
+    return NO_CREDENTIAL_WEB_SPEECH_PROVIDER_IDS.has(providerId)
+      || !!addedProviders.value[providerId]
+      || isProviderConfigDirty(providerId)
   }
 
   const persistedProvidersMetadata = computed(() => {

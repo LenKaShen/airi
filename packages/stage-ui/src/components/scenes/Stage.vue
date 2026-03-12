@@ -304,6 +304,52 @@ function createRawReplySegmentStream(tokens: ReadableStream<any>, meta: { stream
   return stream
 }
 
+async function speakWithWebSpeechSynthesis(text: string, voiceId: string, signal: AbortSignal): Promise<void> {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+    throw new Error('Web Speech Synthesis is not available in this environment.')
+  }
+
+  const synth = window.speechSynthesis
+  synth.cancel()
+
+  const utterance = new SpeechSynthesisUtterance(text)
+  const voices = synth.getVoices()
+  const matchedVoice = voices.find(voice => (voice.voiceURI || voice.name) === voiceId)
+  if (matchedVoice) {
+    utterance.voice = matchedVoice
+    utterance.lang = matchedVoice.lang || utterance.lang
+  }
+
+  utterance.rate = 1.1
+  utterance.pitch = 1
+  utterance.volume = 1
+
+  if (signal.aborted) {
+    synth.cancel()
+    return
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      synth.cancel()
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true })
+
+    utterance.onend = () => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }
+    utterance.onerror = (event) => {
+      signal.removeEventListener('abort', onAbort)
+      reject(new Error(`Web Speech Synthesis error: ${event.error || 'unknown'}`))
+    }
+
+    synth.speak(utterance)
+  })
+}
+
 const speechPipeline = createSpeechPipeline<AudioBuffer>({
   tts: async (request, signal) => {
     if (signal.aborted)
@@ -314,12 +360,6 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
 
     if (!activeSpeechProvider.value)
       return null
-
-    const provider = await providersStore.getProviderInstance(activeSpeechProvider.value) as SpeechProviderWithExtraOptions<string, UnElevenLabsOptions>
-    if (!provider) {
-      console.error('Failed to initialize speech provider')
-      return null
-    }
 
     const speechText = stripMarkdownActionsForSpeech(request.text)
     if (!speechText && !request.special)
@@ -375,6 +415,23 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
     const input = ssmlEnabled.value
       ? speechStore.generateSSML(speechText, voice, { ...providerConfig, pitch: pitch.value })
       : speechText
+
+    if (activeSpeechProvider.value === 'browser-web-speech-synthesis') {
+      try {
+        nowSpeaking.value = true
+        await speakWithWebSpeechSynthesis(input, voice.id, signal)
+      }
+      finally {
+        nowSpeaking.value = false
+      }
+      return null
+    }
+
+    const provider = await providersStore.getProviderInstance(activeSpeechProvider.value) as SpeechProviderWithExtraOptions<string, UnElevenLabsOptions>
+    if (!provider) {
+      console.error('Failed to initialize speech provider')
+      return null
+    }
 
     try {
       const res = await generateSpeech({
@@ -586,6 +643,10 @@ onUnmounted(() => {
   if (lipSyncLoopId.value) {
     cancelAnimationFrame(lipSyncLoopId.value)
     lipSyncLoopId.value = undefined
+  }
+
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    window.speechSynthesis.cancel()
   }
 
   chatHookCleanups.forEach(dispose => dispose?.())
