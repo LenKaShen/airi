@@ -206,7 +206,8 @@ export const useAiriCardStore = defineStore('airi-card', () => {
 
   function initialize() {
     if (cards.value.has('default'))
-      return
+      return ensureAssistantCard()
+
     cards.value.set('default', newAiriCard({
       name: 'ReLU',
       version: '1.0.0',
@@ -215,8 +216,76 @@ export const useAiriCardStore = defineStore('airi-card', () => {
         t('base.prompt.suffix'),
       ).content,
     }))
+
+    ensureAssistantCard()
+
     if (!activeCardId.value)
       activeCardId.value = 'default'
+  }
+
+  function findYukariCard() {
+    for (const [id, card] of cards.value.entries()) {
+      if (id === 'assistant-yukari')
+        continue
+
+      if ((card.name || '').toLowerCase().includes('yukari')) {
+        return card
+      }
+    }
+
+    return undefined
+  }
+
+  function ensureAssistantCard() {
+    if (cards.value.has('assistant-yukari'))
+      return
+
+    const yukari = findYukariCard()
+    const baseModules = yukari?.extensions?.airi?.modules ?? {
+      consciousness: {
+        provider: activeConsciousnessProvider.value,
+        model: activeConsciousnessModel.value,
+      },
+      speech: {
+        provider: activeSpeechProvider.value,
+        model: activeSpeechModel.value,
+        voice_id: activeSpeechVoiceId.value,
+      },
+    }
+
+    cards.value.set('assistant-yukari', newAiriCard({
+      name: 'Astra',
+      version: '1.0.0',
+      description: 'A calm, dependable assistant character focused on helping the user efficiently.',
+      personality: 'Supportive, practical, concise, and proactive. Prioritize clarity, actionable steps, and reliable follow-through. Keep responses natural and helpful without roleplay theatrics.',
+      scenario: 'You are the user\'s daily assistant inside AIRI. Help with setup, troubleshooting, planning, and technical tasks quickly and clearly.',
+      greetings: [
+        'Hi, I\'m Astra. I\'m ready to help with anything you\'re working on.',
+      ],
+      systemPrompt: 'Act as a highly capable assistant. Be concise by default, precise with technical details, and always optimize for the user\'s goal and time.',
+      extensions: {
+        airi: {
+          modules: {
+            consciousness: {
+              provider: baseModules.consciousness.provider,
+              model: baseModules.consciousness.model,
+            },
+            speech: {
+              provider: baseModules.speech.provider,
+              model: baseModules.speech.model,
+              voice_id: baseModules.speech.voice_id,
+              pitch: baseModules.speech.pitch,
+              rate: baseModules.speech.rate,
+              ssml: baseModules.speech.ssml,
+              language: baseModules.speech.language,
+            },
+            vrm: baseModules.vrm,
+            live2d: baseModules.live2d,
+          },
+          agents: yukari?.extensions?.airi?.agents ?? {},
+        },
+      },
+    }))
   }
 
   watch(activeCard, (newCard: AiriCard | undefined) => {

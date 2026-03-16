@@ -121,7 +121,7 @@ const live2dLipSyncOptions: Live2DLipSyncOptions = { mouthUpdateIntervalMs: 50, 
 
 const { activeCard } = storeToRefs(useAiriCardStore())
 const speechStore = useSpeechStore()
-const { ssmlEnabled, activeSpeechProvider, activeSpeechModel, activeSpeechVoice, pitch } = storeToRefs(speechStore)
+const { ssmlEnabled, activeSpeechProvider, activeSpeechModel, activeSpeechVoice, activeSpeechVoiceId, pitch } = storeToRefs(speechStore)
 const activeCardId = computed(() => activeCard.value?.name ?? 'default')
 const speechRuntimeStore = useSpeechRuntimeStore()
 
@@ -409,6 +409,24 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
       }
     }
 
+    if (activeSpeechProvider.value === 'browser-web-speech-synthesis') {
+      if (!model) {
+        model = 'web-speech-synthesis'
+      }
+
+      if (!voice && activeSpeechVoiceId.value) {
+        voice = {
+          id: activeSpeechVoiceId.value,
+          name: activeSpeechVoiceId.value,
+          description: activeSpeechVoiceId.value,
+          previewURL: '',
+          languages: [{ code: 'ja-JP', title: 'Japanese' }],
+          provider: activeSpeechProvider.value,
+          gender: 'neutral',
+        }
+      }
+    }
+
     if (!model || !voice)
       return null
 
@@ -583,11 +601,16 @@ chatHookCleanups.push(onTokenSpecial(async (special) => {
 chatHookCleanups.push(onStreamEnd(async () => {
   delaysQueue.enqueue(llmInferenceEndToken)
   currentChatIntent?.writeFlush()
+  currentChatIntent?.end()
+  currentChatIntent = null
 }))
 
 chatHookCleanups.push(onAssistantResponseEnd(async (_message) => {
-  currentChatIntent?.end()
-  currentChatIntent = null
+  // Fallback: if a provider/runtime path skipped stream-end close, close here.
+  if (currentChatIntent) {
+    currentChatIntent.end()
+    currentChatIntent = null
+  }
   // const res = await embed({
   //   ...transformersProvider.embed('Xenova/nomic-embed-text-v1'),
   //   input: message,

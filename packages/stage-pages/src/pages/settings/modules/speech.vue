@@ -185,6 +185,23 @@ async function generateTestSpeech() {
     }
   }
 
+  if (activeSpeechProvider.value === 'browser-web-speech-synthesis') {
+    if (!model) {
+      model = 'web-speech-synthesis'
+    }
+    if (!voice && activeSpeechVoiceId.value) {
+      voice = {
+        id: activeSpeechVoiceId.value,
+        name: activeSpeechVoiceId.value,
+        description: activeSpeechVoiceId.value,
+        previewURL: '',
+        languages: [{ code: 'ja-JP', title: 'Japanese' }],
+        provider: activeSpeechProvider.value,
+        gender: 'neutral',
+      }
+    }
+  }
+
   if (!model) {
     console.error('No model selected')
     return
