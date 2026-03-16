@@ -6,7 +6,7 @@ import {
 } from '@proj-airi/stage-ui/components'
 import { useSpeechStore } from '@proj-airi/stage-ui/stores/modules/speech'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
-import { Button, Callout, Textarea } from '@proj-airi/ui'
+import { Button, Callout, FieldSelect, Textarea } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -23,6 +23,13 @@ const isSpeaking = ref(false)
 
 const providerMetadata = computed(() => providersStore.getProviderMetadata(providerId))
 const availableVoices = computed(() => speechStore.availableVoices[providerId] || [])
+
+const voiceOptions = computed(() => {
+  return availableVoices.value.map(voice => ({
+    label: `${voice.name}${voice.languages?.[0]?.code ? ` (${voice.languages[0].code})` : ''}`,
+    value: voice.id,
+  }))
+})
 
 async function refreshVoices() {
   await speechStore.loadVoicesForProvider(providerId)
@@ -92,60 +99,13 @@ onMounted(async () => {
           This provider uses your browser/Electron runtime voices and is optimized for low-latency local playback.
         </Callout>
 
-        <div :class="['flex', 'flex-col', 'gap-2']">
-          <div>
-            <div :class="['text-sm', 'font-medium']">
-              Voice
-            </div>
-            <div :class="['text-xs', 'text-neutral-500', 'dark:text-neutral-400']">
-              Pick a system voice for speech output
-            </div>
-          </div>
-          <div :class="['overflow-auto', 'rounded-md', 'border', 'border-neutral-200', 'dark:border-neutral-700', 'max-h-64']">
-            <table :class="['w-full', 'text-sm', 'border-collapse']">
-              <thead :class="['sticky', 'top-0']">
-                <tr :class="['border-b', 'border-neutral-200', 'dark:border-neutral-700', 'bg-neutral-50', 'dark:bg-neutral-800']">
-                  <th :class="['px-3', 'py-2', 'text-left', 'font-medium']">
-                    Voice Name
-                  </th>
-                  <th :class="['px-3', 'py-2', 'text-left', 'font-medium']">
-                    Language
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="voice in availableVoices"
-                  :key="voice.id"
-                  :class="[
-                    'cursor-pointer',
-                    'transition-colors',
-                    'border-b',
-                    'border-neutral-100',
-                    'dark:border-neutral-800',
-                    'last:border-0',
-                    activeSpeechVoiceId === voice.id
-                      ? ['bg-blue-50', 'dark:bg-blue-900/20', 'font-medium']
-                      : ['hover:bg-neutral-50', 'dark:hover:bg-neutral-800/60'],
-                  ]"
-                  @click="activeSpeechVoiceId = voice.id"
-                >
-                  <td :class="['px-3', 'py-2']">
-                    {{ voice.name }}
-                  </td>
-                  <td :class="['px-3', 'py-2', 'text-neutral-500', 'dark:text-neutral-400']">
-                    {{ voice.languages?.[0]?.code || '—' }}
-                  </td>
-                </tr>
-                <tr v-if="availableVoices.length === 0">
-                  <td colspan="2" :class="['px-3', 'py-6', 'text-center', 'text-neutral-400']">
-                    No voices found. Click "Refresh Voices".
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <FieldSelect
+          v-model="activeSpeechVoiceId"
+          label="Voice"
+          description="Pick a system voice for speech output"
+          :options="voiceOptions"
+          placeholder="Select voice"
+        />
 
         <Textarea
           v-model="testText"
