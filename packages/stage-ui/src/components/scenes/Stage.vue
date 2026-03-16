@@ -118,6 +118,9 @@ const lipSyncStarted = ref(false)
 const lipSyncLoopId = ref<number>()
 const live2dLipSync = ref<Live2DLipSync>()
 const live2dLipSyncOptions: Live2DLipSyncOptions = { mouthUpdateIntervalMs: 50, mouthLerpWindowMs: 50 }
+const webSpeechMouthTarget = ref(0)
+const webSpeechMouthValue = ref(0)
+const webSpeechDecayTimer = ref<number>()
 
 const { activeCard } = storeToRefs(useAiriCardStore())
 const speechStore = useSpeechStore()
@@ -323,26 +326,58 @@ async function speakWithWebSpeechSynthesis(text: string, voiceId: string, signal
   utterance.rate = 1.1
   utterance.pitch = 1
   utterance.volume = 1
+  webSpeechMouthTarget.value = 0.2
 
   if (signal.aborted) {
     synth.cancel()
+    webSpeechMouthTarget.value = 0
     return
   }
 
   await new Promise<void>((resolve, reject) => {
     const onAbort = () => {
       synth.cancel()
+      webSpeechMouthTarget.value = 0
       reject(new DOMException('Aborted', 'AbortError'))
     }
 
     signal.addEventListener('abort', onAbort, { once: true })
 
+    utterance.onboundary = (event) => {
+      // Boundary events provide timing points near spoken word/syllable boundaries.
+      // We convert each boundary into a short mouth-open pulse and decay it quickly
+      // to mimic VTuber lip movement cadence.
+      const idx = event.charIndex ?? 0
+      const seed = Math.abs(Math.sin((idx + 1) * 12.9898))
+      const pulse = 0.35 + seed * 0.45
+
+      webSpeechMouthTarget.value = Math.max(webSpeechMouthTarget.value, pulse)
+
+      if (webSpeechDecayTimer.value !== undefined) {
+        clearTimeout(webSpeechDecayTimer.value)
+      }
+
+      webSpeechDecayTimer.value = window.setTimeout(() => {
+        webSpeechMouthTarget.value = 0.08
+      }, 95)
+    }
+
     utterance.onend = () => {
       signal.removeEventListener('abort', onAbort)
+      if (webSpeechDecayTimer.value !== undefined) {
+        clearTimeout(webSpeechDecayTimer.value)
+        webSpeechDecayTimer.value = undefined
+      }
+      webSpeechMouthTarget.value = 0
       resolve()
     }
     utterance.onerror = (event) => {
       signal.removeEventListener('abort', onAbort)
+      if (webSpeechDecayTimer.value !== undefined) {
+        clearTimeout(webSpeechDecayTimer.value)
+        webSpeechDecayTimer.value = undefined
+      }
+      webSpeechMouthTarget.value = 0
       reject(new Error(`Web Speech Synthesis error: ${event.error || 'unknown'}`))
     }
 
@@ -513,7 +548,24 @@ function startLipSyncLoop() {
     return
 
   const tick = () => {
-    if (!nowSpeaking.value || !live2dLipSync.value) {
+    if (!nowSpeaking.value) {
+      mouthOpenSize.value = 0
+      webSpeechMouthTarget.value = 0
+      webSpeechMouthValue.value = 0
+    }
+    else if (activeSpeechProvider.value === 'browser-web-speech-synthesis') {
+      // Web Speech Synthesis bypasses our WebAudio analyser, so use boundary-driven
+      // pulses with smoothing to approximate syllable/word timing.
+      webSpeechMouthValue.value += (webSpeechMouthTarget.value - webSpeechMouthValue.value) * 0.38
+
+      const t = performance.now()
+      const micro = Math.abs(Math.sin(t / 36)) * 0.05
+      mouthOpenSize.value = Math.min(1, Math.max(0, 0.03 + webSpeechMouthValue.value + micro))
+
+      // Gentle passive decay between boundary events.
+      webSpeechMouthTarget.value *= 0.93
+    }
+    else if (!live2dLipSync.value) {
       mouthOpenSize.value = 0
     }
     else {
@@ -666,6 +718,11 @@ onUnmounted(() => {
   if (lipSyncLoopId.value) {
     cancelAnimationFrame(lipSyncLoopId.value)
     lipSyncLoopId.value = undefined
+  }
+
+  if (webSpeechDecayTimer.value !== undefined) {
+    clearTimeout(webSpeechDecayTimer.value)
+    webSpeechDecayTimer.value = undefined
   }
 
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
